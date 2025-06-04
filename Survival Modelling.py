@@ -4,6 +4,7 @@ from sksurv.ensemble import ComponentwiseGradientBoostingSurvivalAnalysis as CGB
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from sksurv.metrics import cumulative_dynamic_auc
+from scipy.interpolate import make_interp_spline
 
 
 
@@ -70,7 +71,7 @@ def train_survival_model(file_path='scaled_RB_data.csv'):
     # Drop rows with NaN values
     df = df.fillna(0)  # Fill NaN values with 0
 
-    df = df[df['Year'] >= 2024] #Remove rookies
+    df = df[df['Year'] <= 2024] #Remove rookies
 
     # Remove specified columns
     if 'PB' in df.columns and 'Player Name' in df.columns and 'Year' in df.columns:
@@ -113,44 +114,45 @@ def plot_survival_distribution(model, X_test, y_test):
     import matplotlib.pyplot as plt
     
     # Predict survival function for test data
-    surv_funcs = model.predict_cumulative_hazard_function(X_test)
+    surv_funcs = model.predict_survival_function(X_test)
     
     # Create a figure for plotting
     plt.figure(figsize=(12, 6))
     
-    # Plot survival curves for each test instance
-    # for i, surv_func in enumerate(surv_funcs):
-    #     # Only plot a subset of curves to avoid overcrowding
-    #     if i % 2 == 0:  # Plot every 5th curve
-    #         plt.step(surv_func.x, surv_func(surv_func.x), where="post", 
-    #                     label=f"Test sample {i}" if i < 25 else "", alpha=0.3)
+    # Plot individual survival curves with low opacity
+    for fn in surv_funcs:
+        plt.step(fn.x, fn(fn.x), where="post", color="gray", alpha=0.1)
     
-    # Calculate and plot the mean survival curve
+    # Calculate mean survival curve
     mean_times = surv_funcs[0].x
     mean_survival = np.zeros_like(mean_times, dtype=float)
     
     for surv_func in surv_funcs:
         mean_survival += surv_func(mean_times)
     mean_survival /= len(surv_funcs)
-
-    for fn in surv_funcs:
-      plt.step(fn.x, fn(fn.x), where="post")
-    # plt.step(mean_times, mean_survival, where="post", 
-    #             color="red", linewidth=2, label="Mean survival")
     
+    # Plot the mean curve as a smooth line
+    
+    # Create smooth curve with spline interpolation (if enough points)
+    if len(mean_times) > 3:
+        x_smooth = np.linspace(mean_times.min(), mean_times.max(), 300)
+        spline = make_interp_spline(mean_times, mean_survival, k=3)
+        y_smooth = spline(x_smooth)
+        plt.plot(x_smooth, y_smooth, 'r-', linewidth=2.5, label="Average survival")
+        # Fill under the curve
+        plt.fill_between(x_smooth, y_smooth, alpha=0.3, color='red')
+    else:
+        # Fall back to standard line if too few points
+        plt.plot(mean_times, mean_survival, 'r-', linewidth=2.5, label="Average survival")
+        plt.fill_between(mean_times, mean_survival, alpha=0.3, color='red')
+
     # Plot formatting
     plt.xlabel("Seasons (Starts)")
     plt.ylabel("Survival Probability")
     plt.title("RB Survival Probability by Seasons Started")
     plt.ylim(0, 1)
     plt.grid(True)
-    
-    # Add legend for the first few and the mean
-    handles, labels = plt.gca().get_legend_handles_labels()
-    if len(handles) > 10:
-        handles = handles[:5] + [handles[-1]]
-        labels = labels[:5] + [labels[-1]]
-    plt.legend(handles, labels, loc="best")
+    plt.legend(loc="best")
     
     plt.tight_layout()
     plt.show()
@@ -160,3 +162,45 @@ model, X_test, y_test = train_survival_model()
 
 # Plot the survival distribution
 plot_survival_distribution(model, X_test, y_test)
+def add_survival_probabilities_to_data(model, file_path='scaled_RB_data.csv', output_path='RB_survival_probs.csv'):
+    """
+    Add survival probabilities for different timeframes to the dataset and save as a new file.
+    
+    Parameters:
+    model: Trained survival model
+    file_path (str): Path to the input CSV file
+    output_path (str): Path for the output CSV file with survival probabilities
+    """
+    # Load the original data
+    df = pd.read_csv(file_path)
+    df = df.fillna(0)  # Fill NaN values with 0
+    
+    # Extract features for prediction (same as in training)
+    if 'PB' in df.columns and 'Player Name' in df.columns and 'Year' in df.columns:
+        X = df.drop(['PB', 'Player Name', 'Year', 'St', 'Player'], axis=1)
+    else:
+        raise ValueError("Required columns not found in the dataset")
+    
+    # Predict survival function for all players
+    surv_funcs = model.predict_survival_function(X)
+    
+    # Common timepoints to evaluate (e.g., 1, 2, 3, 4, 5 seasons)
+    timepoints = [1, 2, 3, 4, 5, 6, 7]
+    
+    # Add survival probabilities for each timepoint
+    for t in timepoints:
+        prob_col_name = f"Survival_Prob_{t}_seasons"
+        df[prob_col_name] = [fn(t) if t in fn.x else None for fn in surv_funcs]
+    
+    # Save the enhanced dataset
+    df.to_csv(output_path, index=False)
+    print(f"Dataset with survival probabilities saved to {output_path}")
+    
+    return df
+
+# Add survival probabilities to data and save to new file
+df_with_probs = add_survival_probabilities_to_data(model)
+
+# Display a sample of the new data with survival probabilities
+print("\nSample of data with survival probabilities:")
+print(df_with_probs[['Player Name', 'Year'] + [f"Survival_Prob_{t}_seasons" for t in [1, 2, 3, 4, 5,6,7]]].head())
