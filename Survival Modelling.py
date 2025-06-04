@@ -113,17 +113,17 @@ def plot_survival_distribution(model, X_test, y_test):
     import matplotlib.pyplot as plt
     
     # Predict survival function for test data
-    surv_funcs = model.predict_survival_function(X_test)
+    surv_funcs = model.predict_cumulative_hazard_function(X_test)
     
     # Create a figure for plotting
     plt.figure(figsize=(12, 6))
     
     # Plot survival curves for each test instance
-    for i, surv_func in enumerate(surv_funcs):
-        # Only plot a subset of curves to avoid overcrowding
-        if i % 5 == 0:  # Plot every 5th curve
-            plt.step(surv_func.x, surv_func(surv_func.x), where="post", 
-                        label=f"Test sample {i}" if i < 25 else "", alpha=0.3)
+    # for i, surv_func in enumerate(surv_funcs):
+    #     # Only plot a subset of curves to avoid overcrowding
+    #     if i % 2 == 0:  # Plot every 5th curve
+    #         plt.step(surv_func.x, surv_func(surv_func.x), where="post", 
+    #                     label=f"Test sample {i}" if i < 25 else "", alpha=0.3)
     
     # Calculate and plot the mean survival curve
     mean_times = surv_funcs[0].x
@@ -132,9 +132,11 @@ def plot_survival_distribution(model, X_test, y_test):
     for surv_func in surv_funcs:
         mean_survival += surv_func(mean_times)
     mean_survival /= len(surv_funcs)
-    
-    plt.step(mean_times, mean_survival, where="post", 
-                color="red", linewidth=2, label="Mean survival")
+
+    for fn in surv_funcs:
+      plt.step(fn.x, fn(fn.x), where="post")
+    # plt.step(mean_times, mean_survival, where="post", 
+    #             color="red", linewidth=2, label="Mean survival")
     
     # Plot formatting
     plt.xlabel("Seasons (Starts)")
